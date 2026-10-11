@@ -15,6 +15,7 @@ function Queue(initial = []) {
         : (xs.splice(index, 1), x)
     },
     push: (x) => (xs.push(x), x),
+    peek: () => xs[index],
     shift: () => {
       const out = xs[index++]
 

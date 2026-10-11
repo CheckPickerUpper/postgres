@@ -423,7 +423,8 @@ function Postgres(a, b) {
     c.reserved = null
     c.onclose && (c.onclose(e), c.onclose = null)
     options.onclose && options.onclose(c.id)
-    queries.length && connect(c, queries.shift())
+    // A reserve request stays queued while its connection opens (as in reserve()), so onopen can serve it
+    queries.length && connect(c, queries.peek().reserve ? queries.peek() : queries.shift())
   }
 }
 

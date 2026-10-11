@@ -2686,6 +2686,25 @@ t('reserve connection', async() => {
   ]
 })
 
+t('reserve waiting when its connection closes is still served', async() => {
+  const sql = postgres(options)
+  const reserved = await sql.reserve()
+  const [{ pid }] = await reserved`select pg_backend_pid() as pid`
+
+  // max is 1 and the only connection is reserved, so this request waits in the queue
+  const waiting = sql.reserve()
+  const other = postgres(options)
+  await other`select pg_terminate_backend(${ pid }::int)`
+  await other.end()
+
+  const second = await waiting
+  const [{ x }] = await second`select 1 as x`
+  second.release()
+  await sql.end()
+
+  return [1, x]
+})
+
 t('arrays in reserved connection', async() => {
   const reserved = await sql.reserve()
   const [{ x }] = await reserved`select array[1, 2, 3] as x`
