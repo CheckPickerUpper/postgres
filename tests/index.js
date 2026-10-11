@@ -2705,6 +2705,41 @@ t('reserve waiting when its connection closes is still served', async() => {
   return [1, x]
 })
 
+t('reserve rejected while connections are refused does not strand later connections', async() => {
+  const target = { host: process.env.PGHOST || 'localhost', port: Number(process.env.PGPORT) || 5432 }
+  const proxy = net.createServer(socket => {
+    const upstream = net.connect(target.port, target.host)
+    socket.pipe(upstream).pipe(socket)
+    socket.on('error', () => upstream.destroy())
+    upstream.on('error', () => socket.destroy())
+    socket.on('close', () => upstream.destroy())
+    upstream.on('close', () => socket.destroy())
+  })
+  await new Promise(r => proxy.listen(0, '127.0.0.1', r))
+  const port = proxy.address().port
+  const sql = postgres({ ...options, host: '127.0.0.1', port, max: 2 })
+  await sql`select 1`
+
+  // Stop listening, so the pool's connection closes and every new connection is refused
+  proxy.close()
+  sql.end({ timeout: 0 }).catch(() => { /* noop */ })
+  const refused = postgres({ ...options, host: '127.0.0.1', port, max: 2 })
+  const during = await Promise.all([
+    refused.reserve().then(() => 'reserved', e => e.code),
+    refused.reserve().then(() => 'reserved', e => e.code)
+  ])
+
+  // Listen again on the same port: the server is back
+  await new Promise(r => proxy.listen(port, '127.0.0.1', r))
+  const reserved = await refused.reserve()
+  const [[{ x }], [{ y }]] = await Promise.all([reserved`select 1 as x`, refused`select 2 as y`])
+  reserved.release()
+  await refused.end()
+  await new Promise(r => proxy.close(r))
+
+  return ['ECONNREFUSED,ECONNREFUSED,1,2', [during, x, y].join(',')]
+})
+
 t('arrays in reserved connection', async() => {
   const reserved = await sql.reserve()
   const [{ x }] = await reserved`select array[1, 2, 3] as x`

@@ -205,7 +205,8 @@ function Postgres(a, b) {
     const c = open.length
       ? open.shift()
       : await new Promise((resolve, reject) => {
-        const query = { reserve: resolve, reject }
+        // A rejected reserve request leaves the queue, so a later connection is never handed a settled request
+        const query = { reserve: resolve, reject: e => (queries.remove(query), reject(e)) }
         queries.push(query)
         closed.length && connect(closed.shift(), query)
       })
